@@ -13,8 +13,9 @@ results/
 *.svg
 *.csv
 
-# Fichiers Markdown
+# Fichiers Markdown (sauf README)
 *.md
+!README.md
 
 # Python
 __pycache__/
