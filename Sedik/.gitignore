@@ -4,6 +4,7 @@ data/
 *.ivecs
 *.hdf5
 *.h5
+../.vscode/
 
 # Résultats générés (graphiques, métriques)
 results/
