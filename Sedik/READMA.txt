@@ -1,2 +1,23 @@
 LSH
 
+Benchmark LSH - Recherche de Plus Proches Voisins (ANN)
+
+Ce dépôt contient l'implémentation et l'analyse de l'algorithme Locality Sensitive Hashing (LSH) 
+dans le cadre de notre étude comparative des méthodes de recherche approximative (ANN). 
+En s'appuyant sur le dataset SIFT1M (1 million de vecteurs en 128 dimensions), ce notebook évalue 
+spécifiquement les compromis entre la précision (Recall@10), la latence de 
+recherche, le débit (QPS) et l'empreinte mémoire en faisant varier la taille des hachages
+ binaires (nbits). 
+ L'objectif est de situer les performances de LSH par rapport aux autres méthodes 
+ étudiées (HNSW et IVF-PQ), en mettant en lumière sa capacité à offrir une compression 
+ mémoire massive et des temps d'exécution ultra-rapides par rapport à une recherche exacte.
+
+Pour reproduire les expérimentations, il vous suffit de vous assurer que le dossier de données 
+sift1m est bien présent à la racine, puis d'exécuter l'intégralité du 
+notebook LSH_Benchmark_Final.ipynb. Le script installera les dépendances 
+nécessaires (notamment faiss-cpu, pandas et seaborn), calculera la baseline exacte, puis 
+entraînera les différents index LSH tout en gérant automatiquement la mémoire vive. 
+À l'issue de l'exécution, vous obtiendrez un rapport complet sous forme de fichier CSV exporté
+ dans le dossier results/, ainsi qu'une série de graphiques analytiques (courbes de Pareto, 
+ temps de construction, analyse du Speedup) prêts à être intégrés dans le rapport final du projet.
+ 
