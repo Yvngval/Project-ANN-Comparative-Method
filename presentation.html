@@ -1,0 +1,1615 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Benchmark ANN sur SIFT1M — LSH · HNSW · IVF-PQ</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg-dark: #0D1117;
+      --bg-card: #161B22;
+      --bg-surface: #21262D;
+      --border: #30363D;
+      --text-primary: #E6EDF3;
+      --text-muted: #8B949E;
+      --accent-lsh: #6C63FF;
+      --accent-hnsw: #00D4AA;
+      --accent-ivf: #FF6B35;
+      --accent-bf: #FF4757;
+      --accent-green: #3FB950;
+      --accent-yellow: #F0B429;
+      --gradient-hero: linear-gradient(135deg, #6C63FF, #00D4AA);
+      --gradient-progress: linear-gradient(90deg, #6C63FF, #00D4AA);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: var(--bg-dark);
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+    }
+    #presentation {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .slide {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      display: flex;
+      flex-direction: column;
+      padding: 48px 64px 80px;
+      opacity: 0;
+      transform: translateX(80px);
+      transition: opacity 0.45s cubic-bezier(.4,0,.2,1), transform 0.45s cubic-bezier(.4,0,.2,1);
+      pointer-events: none;
+      overflow: hidden;
+    }
+    .slide.active {
+      opacity: 1;
+      transform: translateX(0);
+      pointer-events: all;
+    }
+    .slide.prev {
+      opacity: 0;
+      transform: translateX(-80px);
+    }
+    /* --- Progress & Navigation --- */
+    #progress-bar {
+      position: fixed;
+      bottom: 0; left: 0;
+      height: 4px;
+      background: var(--gradient-progress);
+      transition: width 0.4s ease;
+      z-index: 100;
+    }
+    #nav-controls {
+      position: fixed;
+      bottom: 16px;
+      right: 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      z-index: 100;
+    }
+    #slide-counter {
+      color: var(--text-muted);
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .nav-btn {
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      color: var(--text-primary);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .nav-btn:hover { border-color: var(--accent-hnsw); background: var(--bg-surface); }
+    .nav-btn:disabled { opacity: 0.3; cursor: default; }
+    /* --- Typography --- */
+    .slide-title {
+      font-size: 2rem;
+      font-weight: 700;
+      margin-bottom: 32px;
+      background: var(--gradient-hero);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1.2;
+    }
+    .slide-section {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+    /* --- Badge --- */
+    .badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+    .badge-lsh { background: rgba(108,99,255,0.2); color: var(--accent-lsh); border: 1px solid var(--accent-lsh); }
+    .badge-hnsw { background: rgba(0,212,170,0.15); color: var(--accent-hnsw); border: 1px solid var(--accent-hnsw); }
+    .badge-ivf { background: rgba(255,107,53,0.15); color: var(--accent-ivf); border: 1px solid var(--accent-ivf); }
+    .badge-green { background: rgba(63,185,80,0.15); color: var(--accent-green); border: 1px solid var(--accent-green); }
+    .badge-yellow { background: rgba(240,180,41,0.15); color: var(--accent-yellow); border: 1px solid var(--accent-yellow); }
+    .badge-adjustable { background: rgba(0,212,170,0.2); color: var(--accent-hnsw); border: 1px solid var(--accent-hnsw); font-size: 0.65rem; padding: 2px 8px; vertical-align: middle; }
+    /* --- Cards --- */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 24px;
+    }
+    .card-title { font-size: 0.9rem; font-weight: 600; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+    /* --- Callouts --- */
+    .callout {
+      border-radius: 10px;
+      padding: 12px 20px;
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+    .callout-red { background: rgba(255,71,87,0.12); border-left: 3px solid var(--accent-bf); color: #FFB3B8; }
+    .callout-green { background: rgba(63,185,80,0.12); border-left: 3px solid var(--accent-green); color: #7EE787; }
+    .callout-orange { background: rgba(255,107,53,0.12); border-left: 3px solid var(--accent-ivf); color: #FFB79F; }
+    .callout-blue { background: rgba(108,99,255,0.12); border-left: 3px solid var(--accent-lsh); color: #B8B3FF; }
+    /* --- Tables --- */
+    .data-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    .data-table th {
+      background: var(--bg-surface);
+      color: var(--text-muted);
+      padding: 10px 14px;
+      text-align: left;
+      font-weight: 600;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--border);
+    }
+    .data-table td {
+      padding: 9px 14px;
+      border-bottom: 1px solid rgba(48,54,61,0.5);
+      color: var(--text-primary);
+    }
+    .data-table tr:hover td { background: rgba(255,255,255,0.02); }
+    .data-table tr.highlight td { background: rgba(0,212,170,0.08); }
+    .data-table tr.highlight-lsh td { background: rgba(108,99,255,0.08); }
+    .best { color: var(--accent-green); font-weight: 700; }
+    .worst { color: var(--accent-bf); }
+    /* ============================================================
+       SLIDE 1 — COUVERTURE
+    ============================================================ */
+    #slide-1 {
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      background: radial-gradient(ellipse at 50% 30%, rgba(108,99,255,0.12) 0%, transparent 60%),
+                  radial-gradient(ellipse at 70% 80%, rgba(0,212,170,0.08) 0%, transparent 50%);
+    }
+    .hero-title {
+      font-size: 3.2rem;
+      font-weight: 800;
+      background: var(--gradient-hero);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1.15;
+      margin-bottom: 16px;
+    }
+    .hero-subtitle {
+      font-size: 1.3rem;
+      color: var(--text-muted);
+      margin-bottom: 36px;
+    }
+    .badge-row { display: flex; gap: 12px; justify-content: center; margin-bottom: 32px; flex-wrap: wrap; }
+    .badge-lg {
+      padding: 8px 20px;
+      border-radius: 999px;
+      font-size: 0.95rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      animation: scaleIn 0.4s ease both;
+    }
+    .badge-lg.lsh { background: rgba(108,99,255,0.2); color: var(--accent-lsh); border: 1px solid var(--accent-lsh); animation-delay: 0.1s; }
+    .badge-lg.hnsw { background: rgba(0,212,170,0.15); color: var(--accent-hnsw); border: 1px solid var(--accent-hnsw); animation-delay: 0.25s; }
+    .badge-lg.ivf { background: rgba(255,107,53,0.15); color: var(--accent-ivf); border: 1px solid var(--accent-ivf); animation-delay: 0.4s; }
+    .hero-tagline {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      letter-spacing: 0.08em;
+    }
+    @keyframes scaleIn {
+      from { opacity: 0; transform: scale(0.7); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    /* ============================================================
+       SLIDE 2 — SOMMAIRE
+    ============================================================ */
+    .toc-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; flex: 1; }
+    .toc-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 12px;
+      transition: border-color 0.2s, transform 0.2s;
+      cursor: default;
+    }
+    .toc-card:hover { border-color: var(--accent-hnsw); transform: translateY(-2px); }
+    .toc-icon { width: 40px; height: 40px; }
+    .toc-section { font-size: 0.7rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    .toc-name { font-size: 1.05rem; font-weight: 700; }
+    .toc-slide { font-size: 0.75rem; color: var(--text-muted); margin-top: auto; }
+    /* ============================================================
+       SLIDE 3 — PROBLEMATIQUE
+    ============================================================ */
+    .comparison-cols { display: grid; grid-template-columns: 1fr auto 1fr; gap: 24px; align-items: center; flex: 1; }
+    .comparison-card {
+      background: var(--bg-card);
+      border-radius: 16px;
+      padding: 32px 28px;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .comparison-card.exact { border: 1px solid rgba(255,71,87,0.4); }
+    .comparison-card.ann { border: 1px solid rgba(0,212,170,0.4); }
+    .comparison-card h3 { font-size: 1.3rem; font-weight: 700; }
+    .comparison-card.exact h3 { color: var(--accent-bf); }
+    .comparison-card.ann h3 { color: var(--accent-hnsw); }
+    .metric-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .metric-row:last-child { border-bottom: none; }
+    .metric-label { font-size: 0.85rem; color: var(--text-muted); }
+    .metric-val { font-size: 1rem; font-weight: 700; }
+    .vs-center { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+    .vs-label { font-size: 1.5rem; font-weight: 800; color: var(--text-muted); }
+    .vs-speedup {
+      background: rgba(0,212,170,0.15);
+      border: 1px solid var(--accent-hnsw);
+      border-radius: 10px;
+      padding: 12px 16px;
+      text-align: center;
+      white-space: nowrap;
+    }
+    .vs-speedup .num { font-size: 1.8rem; font-weight: 800; color: var(--accent-hnsw); display: block; }
+    .vs-speedup .sub { font-size: 0.75rem; color: var(--text-muted); }
+    /* ============================================================
+       SLIDE 4 — DATASET
+    ============================================================ */
+    .stat-pills { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 28px; }
+    .stat-pill {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 20px;
+      text-align: center;
+    }
+    .stat-pill .val { font-size: 1.4rem; font-weight: 800; color: var(--text-primary); display: block; }
+    .stat-pill .lbl { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .methodology-steps {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      margin-bottom: 20px;
+    }
+    .method-step {
+      flex: 1;
+      padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      position: relative;
+    }
+    .method-step:not(:last-child)::after {
+      content: '→';
+      position: absolute;
+      right: -12px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+      font-size: 1.2rem;
+      z-index: 2;
+    }
+    .method-step .step-num { font-size: 0.7rem; color: var(--text-muted); font-weight: 600; }
+    .method-step .step-name { font-size: 1rem; font-weight: 700; }
+    .method-step .step-desc { font-size: 0.8rem; color: var(--text-muted); }
+    /* ============================================================
+       SLIDE 5 — LSH PRINCIPE
+    ============================================================ */
+    .principle-split { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; flex: 1; align-items: center; }
+    .principle-features { display: flex; flex-direction: column; gap: 16px; }
+    .feature-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 18px;
+    }
+    .feature-icon { font-size: 1.4rem; flex-shrink: 0; }
+    .feature-title { font-size: 0.9rem; font-weight: 700; margin-bottom: 3px; }
+    .feature-desc { font-size: 0.8rem; color: var(--text-muted); }
+    /* ============================================================
+       SLIDE 6 — LSH RÉSULTATS
+    ============================================================ */
+    .results-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; flex: 1; }
+    .chart-container { position: relative; width: 100%; height: 100%; }
+    /* ============================================================
+       SLIDE 7 — HNSW PRINCIPE
+    ============================================================ */
+    .param-cards { display: flex; flex-direction: column; gap: 12px; }
+    .param-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .param-name { font-size: 1.1rem; font-weight: 800; font-family: monospace; min-width: 120px; }
+    .param-info { flex: 1; }
+    .param-desc { font-size: 0.85rem; font-weight: 600; margin-bottom: 2px; }
+    .param-range { font-size: 0.75rem; color: var(--text-muted); }
+    /* ============================================================
+       SLIDE 8 — HNSW RÉSULTATS
+    ============================================================ */
+    .hnsw-results-layout { display: grid; grid-template-columns: 3fr 2fr; gap: 28px; flex: 1; }
+    .hnsw-side { display: flex; flex-direction: column; gap: 16px; }
+    /* ============================================================
+       SLIDE 9 — IVF-PQ PRINCIPE
+    ============================================================ */
+    .ivfpq-split { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; flex: 1; }
+    .principle-block {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .block-title { font-size: 1rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    .block-desc { font-size: 0.82rem; color: var(--text-muted); line-height: 1.5; }
+    /* ============================================================
+       SLIDE 10 — IVF-PQ RÉSULTATS
+    ============================================================ */
+    .ivf-results-layout { display: grid; grid-template-columns: 3fr 2fr; gap: 28px; flex: 1; }
+    .ivf-side { display: flex; flex-direction: column; gap: 16px; }
+    .stat-card-big {
+      border-radius: 12px;
+      padding: 18px 20px;
+    }
+    .stat-card-big .big-num { font-size: 1.6rem; font-weight: 800; display: block; margin-bottom: 2px; }
+    .stat-card-big .big-lbl { font-size: 0.8rem; color: var(--text-muted); }
+    .stat-card-orange { background: rgba(255,107,53,0.12); border: 1px solid rgba(255,107,53,0.4); }
+    .stat-card-orange .big-num { color: var(--accent-ivf); }
+    .stat-card-cyan { background: rgba(0,212,170,0.1); border: 1px solid rgba(0,212,170,0.4); }
+    .stat-card-cyan .big-num { color: var(--accent-hnsw); }
+    /* ============================================================
+       SLIDE 11 — COMPARAISON TABLEAU
+    ============================================================ */
+    .algo-row-bf { border-left: 3px solid var(--accent-bf) !important; }
+    .algo-row-hnsw { border-left: 3px solid var(--accent-hnsw) !important; }
+    .algo-row-lsh { border-left: 3px solid var(--accent-lsh) !important; }
+    .algo-row-ivf { border-left: 3px solid var(--accent-ivf) !important; }
+    .spectrum-bar {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 24px;
+      margin-top: 20px;
+    }
+    .spectrum-track {
+      height: 8px;
+      background: linear-gradient(90deg, var(--accent-hnsw), var(--accent-lsh), var(--accent-ivf));
+      border-radius: 4px;
+      position: relative;
+      margin: 12px 0;
+    }
+    .spectrum-labels { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); }
+    .spectrum-cursors { display: flex; justify-content: space-between; font-size: 0.7rem; margin-top: 6px; }
+    .spectrum-cursor { text-align: center; }
+    /* ============================================================
+       SLIDE 12 — COMPARAISON GRAPHIQUES
+    ============================================================ */
+    .charts-duo { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; flex: 1; }
+    .chart-panel { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; }
+    .chart-panel-title { font-size: 0.9rem; font-weight: 700; margin-bottom: 14px; color: var(--text-primary); }
+    .chart-panel-note { font-size: 0.72rem; color: var(--text-muted); margin-top: 8px; }
+    /* ============================================================
+       SLIDE 13 — RECOMMANDATIONS
+    ============================================================ */
+    .rec-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; flex: 1; }
+    .rec-card {
+      border-radius: 14px;
+      padding: 24px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .rec-card.violet { background: rgba(108,99,255,0.1); border: 1px solid rgba(108,99,255,0.4); }
+    .rec-card.cyan { background: rgba(0,212,170,0.08); border: 1px solid rgba(0,212,170,0.35); }
+    .rec-card.orange { background: rgba(255,107,53,0.1); border: 1px solid rgba(255,107,53,0.35); }
+    .rec-card.surface { background: var(--bg-surface); border: 1px solid var(--border); }
+    .rec-icon { font-size: 1.8rem; }
+    .rec-title { font-size: 1rem; font-weight: 700; }
+    .rec-algo { font-size: 0.8rem; font-weight: 700; opacity: 0.8; }
+    .rec-desc { font-size: 0.8rem; color: var(--text-muted); line-height: 1.5; }
+    .rec-metric { font-size: 0.78rem; font-weight: 600; opacity: 0.9; }
+    /* ============================================================
+       SLIDE 14 — AJUSTEMENT DYNAMIQUE
+    ============================================================ */
+    .dynamic-split { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; flex: 1; }
+    .dynamic-block { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
+    .dynamic-block h3 { font-size: 1rem; font-weight: 700; margin-bottom: 16px; }
+    .code-block {
+      background: #010409;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      font-family: 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 0.82rem;
+      margin-bottom: 12px;
+      line-height: 1.6;
+      overflow-x: auto;
+    }
+    .code-comment { color: #3FB950; }
+    .code-keyword { color: #FF7B72; }
+    .code-val { color: var(--accent-ivf); }
+    .code-obj { color: var(--accent-hnsw); }
+    .center-callout {
+      background: linear-gradient(135deg, rgba(108,99,255,0.1), rgba(0,212,170,0.1));
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 20px;
+      text-align: center;
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+    /* ============================================================
+       SLIDE 15 — POINTS CLES
+    ============================================================ */
+    .takeaway-list { display: flex; flex-direction: column; gap: 12px; flex: 1; justify-content: center; }
+    .takeaway-item {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 22px;
+      opacity: 0;
+      transform: translateY(12px);
+      transition: opacity 0.4s ease, transform 0.4s ease;
+    }
+    .slide.active .takeaway-item:nth-child(1) { animation: fadeUp 0.4s 0.05s ease both; }
+    .slide.active .takeaway-item:nth-child(2) { animation: fadeUp 0.4s 0.2s ease both; }
+    .slide.active .takeaway-item:nth-child(3) { animation: fadeUp 0.4s 0.35s ease both; }
+    .slide.active .takeaway-item:nth-child(4) { animation: fadeUp 0.4s 0.5s ease both; }
+    .slide.active .takeaway-item:nth-child(5) { animation: fadeUp 0.4s 0.65s ease both; }
+    .takeaway-num {
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      background: var(--gradient-hero);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1rem; font-weight: 800;
+      flex-shrink: 0;
+      color: #fff;
+    }
+    .takeaway-text { font-size: 0.92rem; font-weight: 500; }
+    .takeaway-text strong { color: var(--accent-hnsw); }
+    /* ============================================================
+       SLIDE 16 — FIN
+    ============================================================ */
+    #slide-16 {
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      background: radial-gradient(ellipse at 50% 30%, rgba(0,212,170,0.1) 0%, transparent 60%),
+                  radial-gradient(ellipse at 30% 80%, rgba(108,99,255,0.08) 0%, transparent 50%);
+    }
+    .closing-title {
+      font-size: 4rem;
+      font-weight: 800;
+      background: var(--gradient-hero);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 12px;
+    }
+    .closing-subtitle {
+      font-size: 1.6rem;
+      color: var(--text-muted);
+      margin-bottom: 40px;
+    }
+    .resource-links { display: flex; gap: 16px; justify-content: center; margin-bottom: 40px; flex-wrap: wrap; }
+    .resource-link {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 20px;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: border-color 0.2s;
+    }
+    .resource-link:hover { border-color: var(--accent-hnsw); color: var(--text-primary); }
+    .closing-credits { font-size: 0.8rem; color: var(--text-muted); letter-spacing: 0.06em; }
+  </style>
+</head>
+<body>
+<div id="presentation">
+
+  <!-- ============================================================
+       SLIDE 1 — COUVERTURE
+  ============================================================ -->
+  <div class="slide active" id="slide-1">
+    <div style="text-align:center; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%;">
+      <p style="font-size:0.8rem; font-weight:600; letter-spacing:0.12em; color:var(--text-muted); text-transform:uppercase; margin-bottom:20px;">Projet Benchmark — Recherche Approchée de Voisins</p>
+      <h1 class="hero-title">Benchmark ANN sur SIFT1M</h1>
+      <p class="hero-subtitle">Comparaison d'algorithmes de recherche de voisins approchés</p>
+      <div class="badge-row">
+        <span class="badge-lg lsh">LSH</span>
+        <span class="badge-lg hnsw">HNSW</span>
+        <span class="badge-lg ivf">IVF-PQ</span>
+      </div>
+      <p class="hero-tagline">1 000 000 vecteurs &nbsp;·&nbsp; dim = 128 &nbsp;·&nbsp; K = 10 &nbsp;·&nbsp; FAISS CPU</p>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 2 — SOMMAIRE
+  ============================================================ -->
+  <div class="slide" id="slide-2">
+    <p class="slide-section">Navigation</p>
+    <h2 class="slide-title">Plan de la présentation</h2>
+    <div class="toc-grid">
+      <div class="toc-card">
+        <svg class="toc-icon" viewBox="0 0 40 40" fill="none"><circle cx="20" cy="20" r="18" stroke="#FF4757" stroke-width="2"/><path d="M13 20h14M20 13v14" stroke="#FF4757" stroke-width="2.5" stroke-linecap="round"/></svg>
+        <span class="toc-section">Contexte</span>
+        <span class="toc-name">Problématique</span>
+        <span class="toc-slide">Slide 3</span>
+      </div>
+      <div class="toc-card">
+        <svg class="toc-icon" viewBox="0 0 40 40" fill="none"><rect x="6" y="8" width="28" height="24" rx="4" stroke="#8B949E" stroke-width="2"/><circle cx="20" cy="20" r="6" stroke="#00D4AA" stroke-width="2"/><path d="M20 14V8M20 32v-6M26 20h6M8 20h6" stroke="#8B949E" stroke-width="1.5"/></svg>
+        <span class="toc-section">Données</span>
+        <span class="toc-name">Dataset & Méthodologie</span>
+        <span class="toc-slide">Slide 4</span>
+      </div>
+      <div class="toc-card">
+        <svg class="toc-icon" viewBox="0 0 40 40" fill="none"><rect x="8" y="8" width="24" height="24" rx="4" stroke="#6C63FF" stroke-width="2"/><path d="M14 14l12 12M14 26l12-12" stroke="#6C63FF" stroke-width="2" stroke-linecap="round"/></svg>
+        <span class="toc-section">Algorithme 1</span>
+        <span class="toc-name">LSH</span>
+        <span class="toc-slide">Slides 5 – 6</span>
+      </div>
+      <div class="toc-card">
+        <svg class="toc-icon" viewBox="0 0 40 40" fill="none"><circle cx="12" cy="12" r="4" stroke="#00D4AA" stroke-width="2"/><circle cx="28" cy="12" r="4" stroke="#00D4AA" stroke-width="2"/><circle cx="20" cy="26" r="4" stroke="#00D4AA" stroke-width="2"/><path d="M16 12h8M14 15l4 8M26 15l-4 8" stroke="#00D4AA" stroke-width="1.5"/></svg>
+        <span class="toc-section">Algorithme 2</span>
+        <span class="toc-name">HNSW</span>
+        <span class="toc-slide">Slides 7 – 8</span>
+      </div>
+      <div class="toc-card">
+        <svg class="toc-icon" viewBox="0 0 40 40" fill="none"><rect x="6" y="14" width="28" height="12" rx="3" stroke="#FF6B35" stroke-width="2"/><path d="M12 14v-4h16v4M12 26v4h16v-4" stroke="#FF6B35" stroke-width="2"/><path d="M14 20h4M22 20h4" stroke="#FF6B35" stroke-width="2" stroke-linecap="round"/></svg>
+        <span class="toc-section">Algorithme 3</span>
+        <span class="toc-name">IVF-PQ</span>
+        <span class="toc-slide">Slides 9 – 10</span>
+      </div>
+      <div class="toc-card">
+        <svg class="toc-icon" viewBox="0 0 40 40" fill="none"><path d="M8 32L16 20l8 8 8-16" stroke="#F0B429" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16" cy="20" r="3" fill="#F0B429"/><circle cx="24" cy="28" r="3" fill="#F0B429"/><circle cx="32" cy="12" r="3" fill="#F0B429"/></svg>
+        <span class="toc-section">Analyse</span>
+        <span class="toc-name">Comparaison & Recommandations</span>
+        <span class="toc-slide">Slides 11 – 15</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 3 — PROBLEMATIQUE
+  ============================================================ -->
+  <div class="slide" id="slide-3">
+    <p class="slide-section">Contexte</p>
+    <h2 class="slide-title">Pourquoi l'ANN ?</h2>
+    <div class="comparison-cols">
+      <div class="comparison-card exact">
+        <h3>Recherche Exacte</h3>
+        <p style="font-size:0.82rem; color:var(--text-muted);">Brute Force — Distance calculée avec chaque vecteur</p>
+        <div class="metric-row">
+          <span class="metric-label">Recall@10</span>
+          <span class="metric-val" style="color:var(--accent-green);">100%</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Latence (1M vecteurs)</span>
+          <span class="metric-val" style="color:var(--accent-bf);">~100 ms</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Complexité</span>
+          <span class="metric-val" style="color:var(--accent-bf);">O(N)</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Débit (QPS)</span>
+          <span class="metric-val" style="color:var(--accent-bf);">~10 req/s</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Scalabilité</span>
+          <span class="metric-val" style="color:var(--accent-bf);">Impossible &gt;100k</span>
+        </div>
+      </div>
+      <div class="vs-center">
+        <span class="vs-label">VS</span>
+        <div class="vs-speedup">
+          <span class="num">×550</span>
+          <span class="sub">plus rapide</span>
+        </div>
+        <div style="font-size:0.72rem; color:var(--text-muted); text-align:center; line-height:1.4;">Sur 1M vecteurs<br>dim=128, CPU</div>
+      </div>
+      <div class="comparison-card ann">
+        <h3>Recherche Approchée (ANN)</h3>
+        <p style="font-size:0.82rem; color:var(--text-muted);">Index spécialisé — Explore seulement un sous-ensemble</p>
+        <div class="metric-row">
+          <span class="metric-label">Recall@10</span>
+          <span class="metric-val" style="color:var(--accent-green);">~99% (HNSW)</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Latence (1M vecteurs)</span>
+          <span class="metric-val" style="color:var(--accent-green);">&lt; 0.2 ms</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Complexité</span>
+          <span class="metric-val" style="color:var(--accent-green);">O(log N)</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Débit (QPS)</span>
+          <span class="metric-val" style="color:var(--accent-green);">~5 500+ req/s</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Scalabilité</span>
+          <span class="metric-val" style="color:var(--accent-green);">Millions de vecteurs</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 4 — DATASET & METHODOLOGIE
+  ============================================================ -->
+  <div class="slide" id="slide-4">
+    <p class="slide-section">Données</p>
+    <h2 class="slide-title">Dataset SIFT1M & Méthodologie</h2>
+    <div class="stat-pills">
+      <div class="stat-pill"><span class="val">1 000 000</span><span class="lbl">Vecteurs base</span></div>
+      <div class="stat-pill"><span class="val">128</span><span class="lbl">Dimensions</span></div>
+      <div class="stat-pill"><span class="val">10 000</span><span class="lbl">Requêtes test</span></div>
+      <div class="stat-pill"><span class="val">K = 10</span><span class="lbl">Voisins cherchés</span></div>
+      <div class="stat-pill"><span class="val">L2</span><span class="lbl">Distance</span></div>
+      <div class="stat-pill" style="border-color:var(--accent-ivf)"><span class="val" style="color:var(--accent-ivf)">FAISS</span><span class="lbl">CPU uniquement</span></div>
+    </div>
+    <div class="card" style="margin-bottom:20px; border-left:3px solid var(--accent-hnsw)">
+      <p style="font-size:0.85rem;"><strong style="color:var(--accent-hnsw);">SIFT</strong> = Scale-Invariant Feature Transform — descripteurs visuels extraits d'images. Benchmark standard en recherche ANN depuis plus de 10 ans.</p>
+    </div>
+    <div class="methodology-steps">
+      <div class="method-step">
+        <span class="step-num">Étape 1</span>
+        <span class="step-name">Build Index</span>
+        <span class="step-desc">Construire la structure de données sur les 1M vecteurs (mesuré en secondes)</span>
+      </div>
+      <div class="method-step">
+        <span class="step-num">Étape 2</span>
+        <span class="step-name">Search</span>
+        <span class="step-desc">Exécuter les 10k requêtes — mesure latence moyenne et QPS</span>
+      </div>
+      <div class="method-step">
+        <span class="step-num">Étape 3</span>
+        <span class="step-name">Compute Recall@10</span>
+        <span class="step-desc">Comparer avec le ground truth — fraction des 10 vrais voisins retrouvés</span>
+      </div>
+    </div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+      <div class="card"><p style="font-size:0.82rem; color:var(--text-muted);">Format fichiers</p><p style="font-weight:700;">.fvecs / .ivecs (binaire)</p></div>
+      <div class="card"><p style="font-size:0.82rem; color:var(--text-muted);">Référence absolue</p><p style="font-weight:700;">100 voisins exacts précalculés par requête</p></div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 5 — LSH PRINCIPE
+  ============================================================ -->
+  <div class="slide" id="slide-5">
+    <p class="slide-section">Algorithme 1 / 3</p>
+    <h2 class="slide-title">LSH — Principe</h2>
+    <div class="principle-split">
+      <div>
+        <div style="margin-bottom:16px; display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-lsh" style="font-size:0.9rem;">Locality Sensitive Hashing</span>
+        </div>
+        <p style="font-size:0.88rem; color:var(--text-muted); margin-bottom:24px; line-height:1.6;">Projections aléatoires qui mappent des vecteurs similaires vers le même code binaire de <strong>nbits</strong> bits. Deux vecteurs proches ont une forte probabilité de partager le même hash.</p>
+        <div class="principle-features">
+          <div class="feature-item">
+            <span class="feature-icon">⚡</span>
+            <div>
+              <div class="feature-title">Build ultra-rapide</div>
+              <div class="feature-desc">0.5 à 6 secondes pour 1M vecteurs — pas de structure complexe</div>
+            </div>
+          </div>
+          <div class="feature-item">
+            <span class="feature-icon">🪶</span>
+            <div>
+              <div class="feature-title">Empreinte mémoire faible</div>
+              <div class="feature-desc">7 à 60 MB selon nbits — codes binaires compacts</div>
+            </div>
+          </div>
+          <div class="feature-item" style="border-color:rgba(255,71,87,0.3)">
+            <span class="feature-icon">⚠️</span>
+            <div>
+              <div class="feature-title" style="color:var(--accent-bf);">Recall limité</div>
+              <div class="feature-desc">Plafonne à ~53% même avec nbits=1024 sur SIFT1M</div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:16px; display:flex; align-items:center; gap:8px;">
+          <span style="font-size:0.82rem; color:var(--text-muted);">Hyperparamètre clé :</span>
+          <span class="badge badge-lsh" style="font-size:0.95rem; font-family:monospace;">nbits</span>
+        </div>
+      </div>
+      <!-- SVG LSH -->
+      <div>
+        <svg viewBox="0 0 340 300" style="width:100%; height:100%; max-height:320px;" fill="none">
+          <!-- Background -->
+          <rect width="340" height="300" rx="12" fill="#161B22"/>
+          <!-- Zone colors -->
+          <polygon points="0,0 180,0 180,150 0,300" fill="rgba(108,99,255,0.08)"/>
+          <polygon points="180,0 340,0 340,140 180,150" fill="rgba(0,212,170,0.06)"/>
+          <polygon points="0,300 180,150 340,140 340,300" fill="rgba(255,107,53,0.07)"/>
+          <!-- Hyperplane 1 -->
+          <line x1="180" y1="0" x2="180" y2="300" stroke="#6C63FF" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.7"/>
+          <text x="165" y="16" fill="#6C63FF" font-size="10" opacity="0.8">h₁</text>
+          <!-- Hyperplane 2 -->
+          <line x1="0" y1="150" x2="340" y2="150" stroke="#00D4AA" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.7"/>
+          <text x="4" y="145" fill="#00D4AA" font-size="10" opacity="0.8">h₂</text>
+          <!-- Hyperplane 3 -->
+          <line x1="60" y1="0" x2="280" y2="300" stroke="#FF6B35" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.5"/>
+          <text x="62" y="14" fill="#FF6B35" font-size="10" opacity="0.8">h₃</text>
+          <!-- Data points -->
+          <circle cx="90" cy="80" r="5" fill="#6C63FF" opacity="0.6"/>
+          <circle cx="120" cy="100" r="5" fill="#6C63FF" opacity="0.6"/>
+          <circle cx="100" cy="60" r="5" fill="#6C63FF" opacity="0.6"/>
+          <circle cx="240" cy="70" r="5" fill="#00D4AA" opacity="0.6"/>
+          <circle cx="270" cy="90" r="5" fill="#00D4AA" opacity="0.6"/>
+          <circle cx="100" cy="220" r="5" fill="#FF6B35" opacity="0.6"/>
+          <circle cx="130" cy="240" r="5" fill="#FF6B35" opacity="0.6"/>
+          <circle cx="220" cy="220" r="5" fill="#8B949E" opacity="0.5"/>
+          <!-- Query point -->
+          <circle cx="105" cy="88" r="9" fill="none" stroke="#F0B429" stroke-width="2.5"/>
+          <circle cx="105" cy="88" r="4" fill="#F0B429"/>
+          <!-- Hash label -->
+          <rect x="30" y="110" width="120" height="28" rx="6" fill="rgba(108,99,255,0.2)" stroke="#6C63FF" stroke-width="1"/>
+          <text x="90" y="129" fill="#6C63FF" font-size="11" text-anchor="middle" font-weight="700">hash: "01..."</text>
+          <!-- Legend -->
+          <circle cx="20" cy="270" r="5" fill="#F0B429"/>
+          <text x="30" y="274" fill="#E6EDF3" font-size="10">Requête</text>
+          <circle cx="90" cy="270" r="5" fill="#6C63FF"/>
+          <text x="100" y="274" fill="#E6EDF3" font-size="10">Même bucket</text>
+          <rect x="10" y="255" width="320" height="1" fill="#30363D"/>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 6 — LSH RÉSULTATS
+  ============================================================ -->
+  <div class="slide" id="slide-6">
+    <p class="slide-section">Algorithme 1 / 3 — Résultats</p>
+    <h2 class="slide-title">LSH — Impact du paramètre nbits</h2>
+    <div class="results-layout">
+      <div>
+        <table class="data-table" style="margin-bottom:16px;">
+          <thead>
+            <tr><th>nbits</th><th>Recall@10</th><th>Latence</th><th>RAM</th><th>Build</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>32</td><td class="worst">2.3%</td><td>0.34 ms</td><td>412 MB</td><td>0.47 s</td></tr>
+            <tr><td>64</td><td>6.7%</td><td>0.49 ms</td><td>7.8 MB</td><td>0.55 s</td></tr>
+            <tr><td>128</td><td>15.5%</td><td>0.43 ms</td><td>15.5 MB</td><td>0.65 s</td></tr>
+            <tr><td>256</td><td>28.0%</td><td>0.60 ms</td><td>31 MB</td><td>1.00 s</td></tr>
+            <tr class="highlight-lsh"><td><strong>512</strong></td><td><strong>41.2%</strong></td><td>0.89 ms</td><td>59 MB</td><td>1.71 s</td></tr>
+            <tr><td>1024</td><td>53.0%</td><td>2.29 ms</td><td>~0 MB</td><td>6.12 s</td></tr>
+          </tbody>
+        </table>
+        <div class="callout callout-red" style="font-size:0.82rem;">
+          <strong>Recall plafonné à 53%</strong> même avec nbits=1024 — inadapté pour la production haute précision. L'approximation introduite par la quantification binaire ne peut pas être compensée.
+        </div>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:0;">
+        <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:8px; font-weight:600;">Recall@10 et Latence vs nbits</div>
+        <div class="chart-container" style="flex:1; min-height:0;">
+          <canvas id="lsh-chart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 7 — HNSW PRINCIPE
+  ============================================================ -->
+  <div class="slide" id="slide-7">
+    <p class="slide-section">Algorithme 2 / 3</p>
+    <h2 class="slide-title">HNSW — Principe</h2>
+    <div class="principle-split">
+      <!-- SVG HNSW Architecture -->
+      <div>
+        <svg viewBox="0 0 340 310" style="width:100%; height:100%; max-height:330px;" fill="none">
+          <rect width="340" height="310" rx="12" fill="#161B22"/>
+          <!-- Layer labels -->
+          <text x="10" y="40" fill="#8B949E" font-size="11" font-weight="600">Layer 2</text>
+          <text x="10" y="120" fill="#8B949E" font-size="11" font-weight="600">Layer 1</text>
+          <text x="10" y="220" fill="#8B949E" font-size="11" font-weight="600">Layer 0</text>
+          <!-- Layer separators -->
+          <line x1="50" y1="80" x2="330" y2="80" stroke="#30363D" stroke-dasharray="4,4"/>
+          <line x1="50" y1="160" x2="330" y2="160" stroke="#30363D" stroke-dasharray="4,4"/>
+          <!-- Layer 2 nodes (clairsemé) -->
+          <circle cx="130" cy="48" r="8" fill="rgba(0,212,170,0.3)" stroke="#00D4AA" stroke-width="2"/>
+          <circle cx="250" cy="48" r="8" fill="rgba(0,212,170,0.3)" stroke="#00D4AA" stroke-width="2"/>
+          <line x1="130" y1="48" x2="250" y2="48" stroke="#00D4AA" stroke-width="1.5" opacity="0.5"/>
+          <!-- Layer 1 nodes (medium) -->
+          <circle cx="100" cy="122" r="7" fill="rgba(0,212,170,0.2)" stroke="#00D4AA" stroke-width="1.5"/>
+          <circle cx="160" cy="118" r="7" fill="rgba(0,212,170,0.2)" stroke="#00D4AA" stroke-width="1.5"/>
+          <circle cx="220" cy="122" r="7" fill="rgba(0,212,170,0.2)" stroke="#00D4AA" stroke-width="1.5"/>
+          <circle cx="280" cy="118" r="7" fill="rgba(0,212,170,0.2)" stroke="#00D4AA" stroke-width="1.5"/>
+          <line x1="100" y1="122" x2="160" y2="118" stroke="#00D4AA" stroke-width="1.2" opacity="0.4"/>
+          <line x1="160" y1="118" x2="220" y2="122" stroke="#00D4AA" stroke-width="1.2" opacity="0.4"/>
+          <line x1="220" y1="122" x2="280" y2="118" stroke="#00D4AA" stroke-width="1.2" opacity="0.4"/>
+          <line x1="100" y1="122" x2="220" y2="122" stroke="#00D4AA" stroke-width="1" opacity="0.25"/>
+          <!-- Layer 0 nodes (dense) -->
+          <circle cx="75" cy="210" r="6" fill="rgba(0,212,170,0.15)" stroke="#00D4AA" stroke-width="1.2"/>
+          <circle cx="110" cy="225" r="6" fill="rgba(0,212,170,0.15)" stroke="#00D4AA" stroke-width="1.2"/>
+          <circle cx="145" cy="205" r="6" fill="rgba(0,212,170,0.15)" stroke="#00D4AA" stroke-width="1.2"/>
+          <circle cx="180" cy="220" r="6" fill="rgba(0,212,170,0.15)" stroke="#00D4AA" stroke-width="1.2"/>
+          <circle cx="215" cy="208" r="6" fill="rgba(0,212,170,0.15)" stroke="#00D4AA" stroke-width="1.2"/>
+          <circle cx="250" cy="222" r="6" fill="rgba(0,212,170,0.15)" stroke="#00D4AA" stroke-width="1.2"/>
+          <circle cx="285" cy="210" r="6" fill="rgba(0,212,170,0.15)" stroke="#00D4AA" stroke-width="1.2"/>
+          <!-- L0 connections -->
+          <line x1="75" y1="210" x2="110" y2="225" stroke="#00D4AA" stroke-width="0.8" opacity="0.3"/>
+          <line x1="110" y1="225" x2="145" y2="205" stroke="#00D4AA" stroke-width="0.8" opacity="0.3"/>
+          <line x1="145" y1="205" x2="180" y2="220" stroke="#00D4AA" stroke-width="0.8" opacity="0.3"/>
+          <line x1="180" y1="220" x2="215" y2="208" stroke="#00D4AA" stroke-width="0.8" opacity="0.3"/>
+          <line x1="215" y1="208" x2="250" y2="222" stroke="#00D4AA" stroke-width="0.8" opacity="0.3"/>
+          <line x1="250" y1="222" x2="285" y2="210" stroke="#00D4AA" stroke-width="0.8" opacity="0.3"/>
+          <line x1="75" y1="210" x2="145" y2="205" stroke="#00D4AA" stroke-width="0.8" opacity="0.2"/>
+          <line x1="145" y1="205" x2="215" y2="208" stroke="#00D4AA" stroke-width="0.8" opacity="0.2"/>
+          <!-- Vertical connections between layers -->
+          <line x1="130" y1="48" x2="100" y2="115" stroke="#6C63FF" stroke-width="1" opacity="0.4" stroke-dasharray="3,2"/>
+          <line x1="250" y1="48" x2="280" y2="111" stroke="#6C63FF" stroke-width="1" opacity="0.4" stroke-dasharray="3,2"/>
+          <line x1="160" y1="118" x2="145" y2="199" stroke="#6C63FF" stroke-width="1" opacity="0.3" stroke-dasharray="3,2"/>
+          <!-- Search path arrow -->
+          <path d="M 130 30 L 130 48 L 160 118 L 145 205" stroke="#F0B429" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.9"/>
+          <polygon points="142,200 148,215 139,214" fill="#F0B429" opacity="0.9"/>
+          <!-- Query result highlight -->
+          <circle cx="145" cy="205" r="11" fill="none" stroke="#F0B429" stroke-width="2.5" opacity="0.8"/>
+          <!-- Legend -->
+          <rect x="10" y="285" width="320" height="1" fill="#30363D"/>
+          <path d="M 15 297 L 30 297" stroke="#F0B429" stroke-width="2.5"/>
+          <text x="35" y="300" fill="#E6EDF3" font-size="9">Chemin de recherche</text>
+          <line x1="120" y1="297" x2="135" y2="297" stroke="#6C63FF" stroke-width="1" stroke-dasharray="3,2"/>
+          <text x="140" y="300" fill="#E6EDF3" font-size="9">Liens inter-couches</text>
+          <circle cx="232" cy="297" r="4" fill="none" stroke="#F0B429" stroke-width="2"/>
+          <text x="240" y="300" fill="#E6EDF3" font-size="9">Résultat</text>
+        </svg>
+      </div>
+      <div class="param-cards">
+        <div style="font-size:0.88rem; color:var(--text-muted); margin-bottom:8px;">Architecture à <strong style="color:var(--text-primary);">couches hiérarchiques</strong> — recherche rapide en descendant du graphe clairsemé vers le graphe dense.</div>
+        <div class="param-card">
+          <span class="param-name" style="color:var(--accent-hnsw);">M</span>
+          <div class="param-info">
+            <div class="param-desc">Connexions par nœud</div>
+            <div class="param-range">Testé : 16 → 32 → 64 | Impact : mémoire & build time</div>
+          </div>
+        </div>
+        <div class="param-card">
+          <span class="param-name" style="color:var(--text-muted);">efConstruction</span>
+          <div class="param-info">
+            <div class="param-desc">Qualité de la construction</div>
+            <div class="param-range">Fixé à 40 — paramètre build uniquement</div>
+          </div>
+        </div>
+        <div class="param-card" style="border-color:var(--accent-hnsw);">
+          <span class="param-name" style="color:var(--accent-hnsw);">efSearch</span>
+          <div class="param-info">
+            <div class="param-desc">Qualité de la recherche <span class="badge-adjustable">AJUSTABLE</span></div>
+            <div class="param-range">Modifiable à chaud — sans reconstruire l'index</div>
+          </div>
+        </div>
+        <div class="callout callout-green" style="font-size:0.78rem; margin-top:4px;">
+          Build : une seule fois (~107s pour M=32). Requêtes : ajustables dynamiquement via efSearch.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 8 — HNSW RÉSULTATS
+  ============================================================ -->
+  <div class="slide" id="slide-8">
+    <p class="slide-section">Algorithme 2 / 3 — Résultats</p>
+    <h2 class="slide-title">HNSW — Impact du paramètre efSearch (M=32)</h2>
+    <div class="hnsw-results-layout">
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <div style="font-size:0.8rem; color:var(--text-muted); font-weight:600;">Recall@10 selon efSearch</div>
+        <div class="chart-container" style="flex:1; min-height:0;">
+          <canvas id="hnsw-chart"></canvas>
+        </div>
+      </div>
+      <div class="hnsw-side">
+        <table class="data-table">
+          <thead><tr><th>efSearch</th><th>Recall</th><th>Latence</th></tr></thead>
+          <tbody>
+            <tr><td>10</td><td class="worst">83.0%</td><td>0.062 ms</td></tr>
+            <tr><td>20</td><td>91.2%</td><td>0.070 ms</td></tr>
+            <tr class="highlight"><td><strong>50</strong></td><td class="best"><strong>97.0%</strong></td><td>0.137 ms</td></tr>
+            <tr class="highlight"><td><strong>100</strong></td><td class="best"><strong>99.1%</strong></td><td>0.182 ms</td></tr>
+            <tr><td>200</td><td>99.7%</td><td>0.346 ms</td></tr>
+            <tr><td>400</td><td>99.9%</td><td>0.734 ms</td></tr>
+          </tbody>
+        </table>
+        <div class="callout callout-green" style="font-size:0.8rem;">
+          <strong>Sweet spot production</strong><br>ef=100 → 99.1% recall en 0.18 ms
+        </div>
+        <div class="card" style="border-left:3px solid var(--accent-hnsw);">
+          <div class="card-title">Build unique (M=32)</div>
+          <p style="font-size:0.9rem;"><strong>107 s</strong> · 748 MB RAM</p>
+          <p style="font-size:0.78rem; color:var(--text-muted); margin-top:4px;">~5 500 QPS en production</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 9 — IVF-PQ PRINCIPE
+  ============================================================ -->
+  <div class="slide" id="slide-9">
+    <p class="slide-section">Algorithme 3 / 3</p>
+    <h2 class="slide-title">IVF-PQ — Principe</h2>
+    <div class="ivfpq-split">
+      <div class="principle-block" style="border-color:rgba(255,107,53,0.4);">
+        <div class="block-title"><span style="color:var(--accent-ivf); font-size:1.3rem;">IVF</span> Inverted File — Partitionnement</div>
+        <!-- SVG IVF -->
+        <svg viewBox="0 0 280 160" style="width:100%; max-height:140px;" fill="none">
+          <rect width="280" height="160" rx="8" fill="#21262D"/>
+          <!-- Cluster 1 -->
+          <ellipse cx="80" cy="70" rx="40" ry="35" fill="rgba(255,107,53,0.1)" stroke="rgba(255,107,53,0.5)" stroke-width="1.5"/>
+          <circle cx="80" cy="70" r="5" fill="#FF6B35"/>
+          <circle cx="65" cy="58" r="3.5" fill="rgba(255,107,53,0.6)"/>
+          <circle cx="92" cy="55" r="3.5" fill="rgba(255,107,53,0.6)"/>
+          <circle cx="70" cy="82" r="3.5" fill="rgba(255,107,53,0.6)"/>
+          <circle cx="95" cy="78" r="3.5" fill="rgba(255,107,53,0.6)"/>
+          <text x="80" y="115" fill="#FF6B35" font-size="10" text-anchor="middle">Cluster 1</text>
+          <!-- Cluster 2 -->
+          <ellipse cx="200" cy="70" rx="40" ry="35" fill="rgba(108,99,255,0.1)" stroke="rgba(108,99,255,0.5)" stroke-width="1.5" stroke-dasharray="5,3"/>
+          <circle cx="200" cy="70" r="5" fill="#6C63FF"/>
+          <circle cx="185" cy="58" r="3.5" fill="rgba(108,99,255,0.6)"/>
+          <circle cx="215" cy="60" r="3.5" fill="rgba(108,99,255,0.6)"/>
+          <circle cx="190" cy="80" r="3.5" fill="rgba(108,99,255,0.6)"/>
+          <text x="200" y="115" fill="#6C63FF" font-size="10" text-anchor="middle">Cluster 2</text>
+          <!-- Query -->
+          <circle cx="140" cy="90" r="7" fill="none" stroke="#F0B429" stroke-width="2"/>
+          <circle cx="140" cy="90" r="3.5" fill="#F0B429"/>
+          <!-- nprobe arrows -->
+          <path d="M 140 87 C 120 72 100 68 88 68" stroke="#F0B429" stroke-width="1.5" fill="none" marker-end="url(#arrowY)"/>
+          <path d="M 143 87 C 162 72 178 68 192 68" stroke="#F0B429" stroke-width="1.5" fill="none" stroke-dasharray="4,3" opacity="0.6"/>
+          <defs><marker id="arrowY" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#F0B429"/></marker></defs>
+          <text x="140" y="148" fill="#F0B429" font-size="9.5" text-anchor="middle" font-weight="700">nprobe = nb cellules visitées</text>
+        </svg>
+        <div class="block-desc">L'espace vectoriel est partitionné en <strong style="color:var(--accent-ivf)">nlist</strong> clusters Voronoi. À la recherche, seuls <strong style="color:var(--accent-ivf)">nprobe</strong> clusters sont explorés — ajustable dynamiquement.</div>
+      </div>
+      <div class="principle-block" style="border-color:rgba(0,212,170,0.4);">
+        <div class="block-title"><span style="color:var(--accent-hnsw); font-size:1.3rem;">PQ</span> Product Quantization — Compression</div>
+        <!-- SVG PQ -->
+        <svg viewBox="0 0 280 160" style="width:100%; max-height:140px;" fill="none">
+          <rect width="280" height="160" rx="8" fill="#21262D"/>
+          <!-- Original vector bar -->
+          <rect x="10" y="30" width="260" height="28" rx="4" fill="rgba(0,212,170,0.1)" stroke="#00D4AA" stroke-width="1.5"/>
+          <text x="140" y="49" fill="#00D4AA" font-size="10" text-anchor="middle" font-weight="700">Vecteur original — dim 128 (float32 = 512 octets)</text>
+          <!-- Arrow down -->
+          <path d="M 140 60 L 140 72" stroke="#8B949E" stroke-width="1.5" marker-end="url(#arrowG)"/>
+          <defs><marker id="arrowG" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#8B949E"/></marker></defs>
+          <!-- 8 sub-vectors -->
+          <rect x="10" y="74" width="28" height="22" rx="3" fill="rgba(255,107,53,0.2)" stroke="#FF6B35" stroke-width="1"/>
+          <rect x="42" y="74" width="28" height="22" rx="3" fill="rgba(255,107,53,0.2)" stroke="#FF6B35" stroke-width="1"/>
+          <rect x="74" y="74" width="28" height="22" rx="3" fill="rgba(255,107,53,0.2)" stroke="#FF6B35" stroke-width="1"/>
+          <rect x="106" y="74" width="28" height="22" rx="3" fill="rgba(255,107,53,0.2)" stroke="#FF6B35" stroke-width="1"/>
+          <rect x="138" y="74" width="28" height="22" rx="3" fill="rgba(108,99,255,0.2)" stroke="#6C63FF" stroke-width="1"/>
+          <rect x="170" y="74" width="28" height="22" rx="3" fill="rgba(108,99,255,0.2)" stroke="#6C63FF" stroke-width="1"/>
+          <rect x="202" y="74" width="28" height="22" rx="3" fill="rgba(108,99,255,0.2)" stroke="#6C63FF" stroke-width="1"/>
+          <rect x="234" y="74" width="28" height="22" rx="3" fill="rgba(108,99,255,0.2)" stroke="#6C63FF" stroke-width="1"/>
+          <text x="140" y="110" fill="#8B949E" font-size="9" text-anchor="middle">8 sous-vecteurs de dim=16</text>
+          <!-- Arrow down -->
+          <path d="M 140 116 L 140 125" stroke="#8B949E" stroke-width="1.5" marker-end="url(#arrowG2)"/>
+          <defs><marker id="arrowG2" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#8B949E"/></marker></defs>
+          <!-- Compressed result -->
+          <rect x="80" y="127" width="120" height="20" rx="4" fill="rgba(0,212,170,0.15)" stroke="#00D4AA" stroke-width="1.5"/>
+          <text x="140" y="141" fill="#00D4AA" font-size="10" text-anchor="middle" font-weight="700">Code PQ : 8 octets</text>
+          <text x="10" y="158" fill="#F0B429" font-size="9.5">512 octets → 8 octets = compression ×64</text>
+        </svg>
+        <div class="block-desc">Chaque sous-vecteur est remplacé par l'index de son centroïde le plus proche dans un <strong style="color:var(--accent-hnsw)">codebook</strong> de 256 entrées. Résultat : <strong style="color:var(--accent-ivf)">8 Mo</strong> pour 1M vecteurs.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 10 — IVF-PQ RÉSULTATS
+  ============================================================ -->
+  <div class="slide" id="slide-10">
+    <p class="slide-section">Algorithme 3 / 3 — Résultats</p>
+    <h2 class="slide-title">IVF-PQ — Impact du paramètre nprobe (nlist=1024)</h2>
+    <div class="ivf-results-layout">
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <div style="font-size:0.8rem; color:var(--text-muted); font-weight:600;">Recall@10 selon nprobe</div>
+        <div class="chart-container" style="flex:1; min-height:0;">
+          <canvas id="ivf-chart"></canvas>
+        </div>
+      </div>
+      <div class="ivf-side">
+        <div class="stat-card-big stat-card-orange">
+          <span class="big-num">8 MB</span>
+          <span class="big-lbl">RAM pour 1M vecteurs — compression ×64 vs HNSW (748 MB)</span>
+        </div>
+        <div class="stat-card-big stat-card-cyan">
+          <span class="big-num">41 361 QPS</span>
+          <span class="big-lbl">à nprobe=10 — débit maximal observé</span>
+        </div>
+        <table class="data-table" style="font-size:0.78rem;">
+          <thead><tr><th>nprobe</th><th>Recall</th><th>Latence</th><th>QPS</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>23.7%</td><td>0.006 ms</td><td class="best">169k</td></tr>
+            <tr><td>5</td><td>34.7%</td><td>0.014 ms</td><td>72k</td></tr>
+            <tr class="highlight"><td><strong>10</strong></td><td><strong>36.6%</strong></td><td>0.024 ms</td><td>41k</td></tr>
+            <tr><td>50</td><td>37.5%</td><td>0.098 ms</td><td>10k</td></tr>
+            <tr><td>200</td><td class="best">37.5%</td><td class="worst">0.327 ms</td><td>3k</td></tr>
+          </tbody>
+        </table>
+        <div class="callout callout-orange" style="font-size:0.78rem;">
+          Recall plafonne à <strong>37.5%</strong> — limitation fondamentale de la quantification PQ (double approximation : IVF + compression vecteurs).
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 11 — COMPARAISON TABLEAU
+  ============================================================ -->
+  <div class="slide" id="slide-11">
+    <p class="slide-section">Analyse comparative</p>
+    <h2 class="slide-title">Comparaison des 4 algorithmes</h2>
+    <table class="data-table" style="margin-bottom:16px;">
+      <thead>
+        <tr><th>Algorithme</th><th>Recall@10</th><th>Latence</th><th>RAM</th><th>QPS</th><th>Build</th></tr>
+      </thead>
+      <tbody>
+        <tr class="algo-row-bf">
+          <td><strong>Brute Force</strong></td>
+          <td class="best">100%</td>
+          <td class="worst">~100 ms</td>
+          <td>~500 MB</td>
+          <td class="worst">~10</td>
+          <td>—</td>
+        </tr>
+        <tr class="algo-row-hnsw">
+          <td><strong style="color:var(--accent-hnsw)">HNSW</strong> <small style="color:var(--text-muted)">(M=32, ef=100)</small></td>
+          <td class="best">99.1%</td>
+          <td>0.18 ms</td>
+          <td class="worst">748 MB</td>
+          <td>~5 500</td>
+          <td>107 s</td>
+        </tr>
+        <tr class="algo-row-lsh">
+          <td><strong style="color:var(--accent-lsh)">LSH</strong> <small style="color:var(--text-muted)">(nbits=512)</small></td>
+          <td class="worst">41.2%</td>
+          <td>0.89 ms</td>
+          <td>59 MB</td>
+          <td>~1 128</td>
+          <td class="best">1.7 s</td>
+        </tr>
+        <tr class="algo-row-ivf">
+          <td><strong style="color:var(--accent-ivf)">IVF-PQ</strong> <small style="color:var(--text-muted)">(nlist=1024, np=10)</small></td>
+          <td class="worst">36.6%</td>
+          <td class="best">0.024 ms</td>
+          <td class="best">8 MB</td>
+          <td class="best">~41 000</td>
+          <td>10 s</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="spectrum-bar">
+      <p style="font-size:0.78rem; font-weight:600; color:var(--text-muted); margin-bottom:6px;">Spectre Précision ↔ Vitesse / Compression</p>
+      <div class="spectrum-track"></div>
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-top:6px;">
+        <div style="text-align:left;"><span class="badge badge-hnsw" style="font-size:0.7rem;">HNSW</span><br><span style="font-size:0.7rem; color:var(--text-muted);">Précision maximale</span></div>
+        <div style="text-align:center;"><span class="badge badge-lsh" style="font-size:0.7rem;">LSH</span><br><span style="font-size:0.7rem; color:var(--text-muted);">Build rapide</span></div>
+        <div style="text-align:right;"><span class="badge badge-ivf" style="font-size:0.7rem;">IVF-PQ</span><br><span style="font-size:0.7rem; color:var(--text-muted);">Débit & mémoire</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 12 — COMPARAISON GRAPHIQUES
+  ============================================================ -->
+  <div class="slide" id="slide-12">
+    <p class="slide-section">Analyse comparative</p>
+    <h2 class="slide-title">Comparaison visuelle — Recall & Mémoire</h2>
+    <div class="charts-duo">
+      <div class="chart-panel">
+        <div class="chart-panel-title">Recall@10 (production sweet spot)</div>
+        <div style="flex:1; position:relative; min-height:0;">
+          <canvas id="compare-recall-chart"></canvas>
+        </div>
+        <div class="chart-panel-note">HNSW domine largement — Brute Force est la référence exacte mais non scalable</div>
+      </div>
+      <div class="chart-panel">
+        <div class="chart-panel-title">Empreinte mémoire RAM (échelle log)</div>
+        <div style="flex:1; position:relative; min-height:0;">
+          <canvas id="compare-ram-chart"></canvas>
+        </div>
+        <div class="chart-panel-note">IVF-PQ est 94× moins gourmand que HNSW — axe logarithmique</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 13 — RECOMMANDATIONS
+  ============================================================ -->
+  <div class="slide" id="slide-13">
+    <p class="slide-section">Recommandations</p>
+    <h2 class="slide-title">Quel algorithme pour quel cas d'usage ?</h2>
+    <div class="rec-grid">
+      <div class="rec-card violet">
+        <div class="rec-icon">🔍</div>
+        <div class="rec-title">Haute Précision</div>
+        <div class="rec-algo" style="color:var(--accent-lsh);">HNSW — M=32, efSearch=100</div>
+        <div class="rec-desc">Moteur de recherche sémantique, RAG, matching médical, e-commerce avec recommandation fine.</div>
+        <div class="rec-metric" style="color:var(--accent-lsh);">99.1% recall · 0.18ms · 5 500 QPS</div>
+      </div>
+      <div class="rec-card cyan">
+        <div class="rec-icon">⚡</div>
+        <div class="rec-title">Très Haut Débit</div>
+        <div class="rec-algo" style="color:var(--accent-hnsw);">IVF-PQ — nlist=1024, nprobe=10</div>
+        <div class="rec-desc">Serveur haute concurrence, filtrage produits e-commerce temps réel, streaming de recommandations.</div>
+        <div class="rec-metric" style="color:var(--accent-hnsw);">41 000 QPS · 0.024ms · 8 MB RAM</div>
+      </div>
+      <div class="rec-card orange">
+        <div class="rec-icon">🪶</div>
+        <div class="rec-title">Contrainte Mémoire</div>
+        <div class="rec-algo" style="color:var(--accent-ivf);">IVF-PQ — compression ×64</div>
+        <div class="rec-desc">Edge computing, appareils mobiles, déploiement embarqué, containers avec RAM limitée.</div>
+        <div class="rec-metric" style="color:var(--accent-ivf);">8 MB pour 1M vecteurs vs 748 MB (HNSW)</div>
+      </div>
+      <div class="rec-card surface">
+        <div class="rec-icon">🧪</div>
+        <div class="rec-title">Prototypage Rapide</div>
+        <div class="rec-algo" style="color:var(--text-muted);">LSH — nbits=512</div>
+        <div class="rec-desc">MVP, exploration de dataset, preuve de concept, validation d'hypothèses sans contrainte de recall.</div>
+        <div class="rec-metric" style="color:var(--text-muted);">Build en 1.7s · ~50× plus rapide que HNSW</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 14 — AJUSTEMENT DYNAMIQUE
+  ============================================================ -->
+  <div class="slide" id="slide-14">
+    <p class="slide-section">Production</p>
+    <h2 class="slide-title">Ajustement dynamique en production</h2>
+    <div class="center-callout" style="margin-bottom:20px;">
+      HNSW et IVF-PQ permettent d'ajuster la qualité de la recherche <strong>à chaud</strong>, sans reconstruire l'index — un seul déploiement, deux modes de fonctionnement.
+    </div>
+    <div class="dynamic-split">
+      <div class="dynamic-block" style="border-color:rgba(0,212,170,0.4);">
+        <h3 style="color:var(--accent-hnsw);">HNSW — efSearch</h3>
+        <div class="code-block">
+<span class="code-comment"># Mode rapide (API /search/fast)</span>
+<span class="code-obj">index</span>.hnsw.efSearch = <span class="code-val">50</span>
+<span class="code-comment"># → 97.0% recall · 0.14ms</span>
+
+<span class="code-comment"># Mode précis (API /search/accurate)</span>
+<span class="code-obj">index</span>.hnsw.efSearch = <span class="code-val">200</span>
+<span class="code-comment"># → 99.7% recall · 0.35ms</span>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div class="card" style="padding:12px; text-align:center; border-color:rgba(0,212,170,0.3);">
+            <div style="font-size:0.7rem; color:var(--text-muted);">efSearch=50</div>
+            <div style="font-size:1.1rem; font-weight:800; color:var(--accent-hnsw);">97.0%</div>
+            <div style="font-size:0.7rem; color:var(--text-muted);">0.137 ms</div>
+          </div>
+          <div class="card" style="padding:12px; text-align:center; border-color:rgba(0,212,170,0.5);">
+            <div style="font-size:0.7rem; color:var(--text-muted);">efSearch=100</div>
+            <div style="font-size:1.1rem; font-weight:800; color:var(--accent-hnsw);">99.1%</div>
+            <div style="font-size:0.7rem; color:var(--text-muted);">0.182 ms</div>
+          </div>
+        </div>
+      </div>
+      <div class="dynamic-block" style="border-color:rgba(255,107,53,0.4);">
+        <h3 style="color:var(--accent-ivf);">IVF-PQ — nprobe</h3>
+        <div class="code-block">
+<span class="code-comment"># Mode ultra-rapide (batch)</span>
+<span class="code-obj">index</span>.nprobe = <span class="code-val">5</span>
+<span class="code-comment"># → 34.7% recall · 72k QPS</span>
+
+<span class="code-comment"># Mode équilibré</span>
+<span class="code-obj">index</span>.nprobe = <span class="code-val">10</span>
+<span class="code-comment"># → 36.6% recall · 41k QPS</span>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div class="card" style="padding:12px; text-align:center; border-color:rgba(255,107,53,0.3);">
+            <div style="font-size:0.7rem; color:var(--text-muted);">nprobe=5</div>
+            <div style="font-size:1.1rem; font-weight:800; color:var(--accent-ivf);">72k QPS</div>
+            <div style="font-size:0.7rem; color:var(--text-muted);">0.014 ms</div>
+          </div>
+          <div class="card" style="padding:12px; text-align:center; border-color:rgba(255,107,53,0.5);">
+            <div style="font-size:0.7rem; color:var(--text-muted);">nprobe=10</div>
+            <div style="font-size:1.1rem; font-weight:800; color:var(--accent-ivf);">41k QPS</div>
+            <div style="font-size:0.7rem; color:var(--text-muted);">0.024 ms</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 15 — POINTS CLES
+  ============================================================ -->
+  <div class="slide" id="slide-15">
+    <p class="slide-section">Synthèse</p>
+    <h2 class="slide-title">5 Points Clés</h2>
+    <div class="takeaway-list">
+      <div class="takeaway-item">
+        <div class="takeaway-num">1</div>
+        <div class="takeaway-text"><strong>HNSW</strong> offre le meilleur compromis recall/latence — <strong>99.1% en 0.18ms</strong> sur 1M vecteurs avec M=32, efSearch=100.</div>
+      </div>
+      <div class="takeaway-item">
+        <div class="takeaway-num">2</div>
+        <div class="takeaway-text"><strong>IVF-PQ</strong> est le champion du débit et de la mémoire — <strong>41 000 QPS</strong> et seulement <strong>8 MB</strong> de RAM grâce à la compression ×64.</div>
+      </div>
+      <div class="takeaway-item">
+        <div class="takeaway-num">3</div>
+        <div class="takeaway-text"><strong>LSH</strong> est limité à 53% de recall sur SIFT1M, adapté uniquement au <strong>prototypage rapide</strong> ou à la déduplication grossière.</div>
+      </div>
+      <div class="takeaway-item">
+        <div class="takeaway-num">4</div>
+        <div class="takeaway-text"><strong>efSearch</strong> (HNSW) et <strong>nprobe</strong> (IVF-PQ) s'ajustent <strong>à chaud sans rebuild</strong> — flexibilité production sur un seul déploiement.</div>
+      </div>
+      <div class="takeaway-item">
+        <div class="takeaway-num">5</div>
+        <div class="takeaway-text">La <strong>Brute Force</strong> reste la seule référence exacte (100% recall) mais ne scale pas au-delà de ~100k vecteurs en production temps réel.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 16 — FIN
+  ============================================================ -->
+  <div class="slide" id="slide-16">
+    <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%;">
+      <h1 class="closing-title">Merci</h1>
+      <p class="closing-subtitle">Questions ?</p>
+      <div class="badge-row" style="margin-bottom:32px;">
+        <span class="badge-lg lsh">LSH · 53% recall</span>
+        <span class="badge-lg hnsw">HNSW · 99.1% recall</span>
+        <span class="badge-lg ivf">IVF-PQ · 41k QPS</span>
+      </div>
+      <div class="resource-links">
+        <a class="resource-link" href="http://corpus-texmex.irisa.fr/" target="_blank">Dataset SIFT1M — corpus-texmex.irisa.fr</a>
+        <a class="resource-link" href="https://github.com/facebookresearch/faiss" target="_blank">FAISS — github.com/facebookresearch/faiss</a>
+        <a class="resource-link" href="https://github.com/nmslib/hnswlib" target="_blank">hnswlib — nmslib/hnswlib</a>
+      </div>
+      <p class="closing-credits">SIFT1M · FAISS CPU · LSH · HNSW · IVF-PQ · 2026</p>
+    </div>
+  </div>
+
+  <!-- Navigation Controls -->
+  <div id="nav-controls">
+    <button class="nav-btn" id="btn-prev" disabled>&#8592;</button>
+    <span id="slide-counter">1 / 16</span>
+    <button class="nav-btn" id="btn-next">&#8594;</button>
+  </div>
+  <div id="progress-bar" style="width:6.25%"></div>
+
+</div><!-- /presentation -->
+
+<script>
+const slides = document.querySelectorAll('.slide');
+const totalSlides = slides.length;
+let currentSlide = 0;
+const chartInstances = {};
+
+function goTo(index) {
+  if (index < 0 || index >= totalSlides) return;
+  const prev = currentSlide;
+  slides[prev].classList.remove('active');
+  slides[prev].classList.add('prev');
+  setTimeout(() => slides[prev].classList.remove('prev'), 500);
+  currentSlide = index;
+  slides[currentSlide].classList.add('active');
+  document.getElementById('slide-counter').textContent = (currentSlide + 1) + ' / ' + totalSlides;
+  document.getElementById('progress-bar').style.width = ((currentSlide + 1) / totalSlides * 100) + '%';
+  document.getElementById('btn-prev').disabled = currentSlide === 0;
+  document.getElementById('btn-next').disabled = currentSlide === totalSlides - 1;
+  setTimeout(() => initChartForSlide(currentSlide), 50);
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') goTo(currentSlide + 1);
+  if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   goTo(currentSlide - 1);
+});
+document.getElementById('btn-prev').addEventListener('click', () => goTo(currentSlide - 1));
+document.getElementById('btn-next').addEventListener('click', () => goTo(currentSlide + 1));
+
+/* ================================================================
+   CHART INITIALIZATION
+================================================================ */
+function initChartForSlide(idx) {
+  if (idx === 5 && !chartInstances['lsh'])    buildLshChart();
+  if (idx === 7 && !chartInstances['hnsw'])   buildHnswChart();
+  if (idx === 9 && !chartInstances['ivf'])    buildIvfChart();
+  if (idx === 11 && !chartInstances['cmpR'])  buildCompareCharts();
+}
+
+const COLORS = {
+  lsh: '#6C63FF', hnsw: '#00D4AA', ivf: '#FF6B35', bf: '#FF4757',
+  muted: '#8B949E', green: '#3FB950', yellow: '#F0B429'
+};
+
+const defaultFont = { family: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", size: 11, color: '#8B949E' };
+
+Chart.defaults.color = '#8B949E';
+Chart.defaults.font = defaultFont;
+
+function buildLshChart() {
+  const ctx = document.getElementById('lsh-chart');
+  if (!ctx) return;
+  const nbits = [32, 64, 128, 256, 512, 1024];
+  const recall = [2.3, 6.7, 15.5, 28.0, 41.2, 53.0];
+  const latency = [0.342, 0.488, 0.427, 0.604, 0.888, 2.295];
+  chartInstances['lsh'] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: nbits,
+      datasets: [
+        {
+          label: 'Recall@10 (%)',
+          data: recall,
+          borderColor: COLORS.lsh,
+          backgroundColor: 'rgba(108,99,255,0.1)',
+          fill: true,
+          tension: 0.4,
+          pointRadius: 5,
+          pointBackgroundColor: COLORS.lsh,
+          yAxisID: 'y1'
+        },
+        {
+          label: 'Latence (ms)',
+          data: latency,
+          borderColor: COLORS.ivf,
+          backgroundColor: 'rgba(255,107,53,0.05)',
+          borderDash: [5, 3],
+          tension: 0.4,
+          pointRadius: 5,
+          pointBackgroundColor: COLORS.ivf,
+          yAxisID: 'y2'
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: {
+          type: 'logarithmic',
+          title: { display: true, text: 'nbits (échelle log)', color: COLORS.muted, font: { size: 11 } },
+          grid: { color: 'rgba(48,54,61,0.5)' },
+          ticks: { color: COLORS.muted, callback: v => v }
+        },
+        y1: {
+          type: 'linear', position: 'left',
+          title: { display: true, text: 'Recall@10 (%)', color: COLORS.lsh, font: { size: 11 } },
+          grid: { color: 'rgba(48,54,61,0.5)' },
+          ticks: { color: COLORS.lsh },
+          min: 0, max: 60
+        },
+        y2: {
+          type: 'linear', position: 'right',
+          title: { display: true, text: 'Latence (ms)', color: COLORS.ivf, font: { size: 11 } },
+          grid: { drawOnChartArea: false },
+          ticks: { color: COLORS.ivf },
+          min: 0
+        }
+      },
+      plugins: {
+        legend: { labels: { color: '#E6EDF3', boxWidth: 14, font: { size: 11 } } },
+        tooltip: { backgroundColor: '#161B22', borderColor: '#30363D', borderWidth: 1, titleColor: '#E6EDF3', bodyColor: '#8B949E' }
+      }
+    }
+  });
+}
+
+function buildHnswChart() {
+  const ctx = document.getElementById('hnsw-chart');
+  if (!ctx) return;
+  const ef = [10, 20, 50, 100, 200, 400];
+  const recall = [83.0, 91.2, 97.0, 99.1, 99.7, 99.9];
+  const bgColors = recall.map(r => {
+    if (r < 90) return 'rgba(255,71,87,0.7)';
+    if (r < 97) return 'rgba(240,180,41,0.7)';
+    return 'rgba(63,185,80,0.75)';
+  });
+  chartInstances['hnsw'] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: ef.map(v => 'ef=' + v),
+      datasets: [{
+        label: 'Recall@10 (%)',
+        data: recall,
+        backgroundColor: bgColors,
+        borderColor: bgColors.map(c => c.replace('0.7', '1').replace('0.75', '1')),
+        borderWidth: 1,
+        borderRadius: 4
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { grid: { color: 'rgba(48,54,61,0.5)' }, ticks: { color: '#E6EDF3' } },
+        y: {
+          min: 70, max: 102,
+          grid: { color: 'rgba(48,54,61,0.5)' },
+          ticks: { color: COLORS.muted, callback: v => v + '%' },
+          title: { display: true, text: 'Recall@10 (%)', color: COLORS.muted }
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#161B22', borderColor: '#30363D', borderWidth: 1,
+          titleColor: '#E6EDF3', bodyColor: '#8B949E',
+          callbacks: { label: ctx => ' Recall@10 : ' + ctx.raw + '%' }
+        }
+      }
+    }
+  });
+}
+
+function buildIvfChart() {
+  const ctx = document.getElementById('ivf-chart');
+  if (!ctx) return;
+  const nprobe = [1, 2, 5, 10, 20, 50, 100, 200];
+  const recall = [23.65, 29.43, 34.70, 36.59, 37.34, 37.53, 37.54, 37.55];
+  chartInstances['ivf'] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: nprobe,
+      datasets: [{
+        label: 'Recall@10 (%)',
+        data: recall,
+        borderColor: COLORS.ivf,
+        backgroundColor: 'rgba(255,107,53,0.1)',
+        fill: true,
+        tension: 0.35,
+        pointRadius: 5,
+        pointBackgroundColor: nprobe.map((v, i) => i === 3 ? '#F0B429' : COLORS.ivf),
+        pointRadius: nprobe.map((v, i) => i === 3 ? 8 : 5),
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: {
+          type: 'logarithmic',
+          title: { display: true, text: 'nprobe (échelle log)', color: COLORS.muted },
+          grid: { color: 'rgba(48,54,61,0.5)' },
+          ticks: { color: COLORS.muted, callback: v => v }
+        },
+        y: {
+          min: 15, max: 42,
+          title: { display: true, text: 'Recall@10 (%)', color: COLORS.ivf },
+          grid: { color: 'rgba(48,54,61,0.5)' },
+          ticks: { color: COLORS.muted, callback: v => v + '%' }
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#161B22', borderColor: '#30363D', borderWidth: 1,
+          titleColor: '#E6EDF3', bodyColor: '#8B949E',
+          callbacks: {
+            title: items => 'nprobe = ' + items[0].label,
+            label: ctx => ' Recall@10 : ' + ctx.raw.toFixed(1) + '%'
+          }
+        }
+      }
+    }
+  });
+}
+
+function buildCompareCharts() {
+  // Bar chart Recall@10
+  const ctxR = document.getElementById('compare-recall-chart');
+  if (ctxR) {
+    chartInstances['cmpR'] = new Chart(ctxR, {
+      type: 'bar',
+      data: {
+        labels: ['Brute Force', 'HNSW', 'LSH', 'IVF-PQ'],
+        datasets: [{
+          label: 'Recall@10 (%)',
+          data: [100, 99.1, 41.2, 36.6],
+          backgroundColor: [COLORS.bf, COLORS.hnsw, COLORS.lsh, COLORS.ivf].map(c => c + '99'),
+          borderColor: [COLORS.bf, COLORS.hnsw, COLORS.lsh, COLORS.ivf],
+          borderWidth: 2,
+          borderRadius: 6
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        indexAxis: 'y',
+        scales: {
+          x: { min: 0, max: 105, grid: { color: 'rgba(48,54,61,0.5)' }, ticks: { color: COLORS.muted, callback: v => v + '%' } },
+          y: { grid: { display: false }, ticks: { color: '#E6EDF3', font: { weight: '700' } } }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#161B22', borderColor: '#30363D', borderWidth: 1,
+            titleColor: '#E6EDF3', bodyColor: '#8B949E',
+            callbacks: { label: ctx => ' ' + ctx.raw + '%' }
+          }
+        }
+      }
+    });
+  }
+  // Bar chart RAM (log)
+  const ctxM = document.getElementById('compare-ram-chart');
+  if (ctxM) {
+    chartInstances['cmpM'] = new Chart(ctxM, {
+      type: 'bar',
+      data: {
+        labels: ['Brute Force', 'HNSW', 'LSH', 'IVF-PQ'],
+        datasets: [{
+          label: 'RAM (MB)',
+          data: [500, 748, 59, 8],
+          backgroundColor: [COLORS.bf, COLORS.hnsw, COLORS.lsh, COLORS.ivf].map(c => c + '99'),
+          borderColor: [COLORS.bf, COLORS.hnsw, COLORS.lsh, COLORS.ivf],
+          borderWidth: 2,
+          borderRadius: 6
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        indexAxis: 'y',
+        scales: {
+          x: {
+            type: 'logarithmic',
+            grid: { color: 'rgba(48,54,61,0.5)' },
+            ticks: { color: COLORS.muted, callback: v => v + ' MB' },
+            title: { display: true, text: 'RAM (MB, log)', color: COLORS.muted }
+          },
+          y: { grid: { display: false }, ticks: { color: '#E6EDF3', font: { weight: '700' } } }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#161B22', borderColor: '#30363D', borderWidth: 1,
+            titleColor: '#E6EDF3', bodyColor: '#8B949E',
+            callbacks: { label: ctx => ' ' + ctx.raw + ' MB' }
+          }
+        }
+      }
+    });
+  }
+}
+</script>
+</body>
+</html>
