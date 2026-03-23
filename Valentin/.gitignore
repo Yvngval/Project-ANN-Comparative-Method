@@ -4,6 +4,7 @@ data/
 *.ivecs
 *.hdf5
 *.h5
+../.vscode/
 
 # Résultats générés (graphiques, métriques)
 results/
@@ -67,15 +68,3 @@ env/
 # Fichiers temporaires système
 Thumbs.db
 .DS_Store
-
-# Scripts utilitaires locaux
-download_sift1m.py
-run_notebook.py
-test_groundtruth_fix.py
-nul
-
-# Config Claude Code locale
-.claude/
-
-# Notebooks de sauvegarde
-notebooks/*_BACKUP*.ipynb
