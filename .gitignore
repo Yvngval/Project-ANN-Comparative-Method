@@ -1,0 +1,11 @@
+# Fichiers volumineux — à générer localement en exécutant Valentin/IVF_PQ_Benchmark.ipynb
+shared_data/base_compressed.npy
+shared_data/base_reconstructed.npy
+
+# Archives et données brutes
+*.zip
+*.tar.gz
+*/sift1m/
+
+# macOS
+.DS_Store
