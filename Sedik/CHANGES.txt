@@ -1,0 +1,45 @@
+# Modifications apportées — LSH Benchmark
+
+## Ce qui a été ajouté
+
+Une **Section 7** a été ajoutée à la fin de `LSH_Benchmark_Final.ipynb`.
+
+Elle teste LSH sur les données **quantifiées puis reconstruites** (compression uniforme 8 bits),
+générées par le notebook IVF-PQ de Valentin et disponibles dans `shared_data/`.
+
+---
+
+## Détail des 5 nouvelles cellules
+
+| Cellule | Rôle |
+|---------|------|
+| **cell-18** | Header de section (markdown) |
+| **cell-19** | Chargement de `base_reconstructed.npy` et `query_reconstructed.npy` depuis `../shared_data/` + affichage du taux de compression |
+| **cell-20** | Recalcul de la ground truth sur les données reconstruites (`IndexFlatL2`) |
+| **cell-21** | Benchmark LSH sur données reconstruites — mêmes hyperparamètres (`nbits_list = [32, 64, 128, 256, 512, 1024]`) |
+| **cell-22** | Tableau comparatif original vs quantifié/reconstruit + graphiques côte à côte (Recall@10 et QPS) + export CSV |
+
+---
+
+## Fichiers générés à l'exécution
+
+| Fichier | Description |
+|---------|-------------|
+| `results/lsh_benchmark_reconstructed_results.csv` | Résultats LSH sur données reconstruites |
+| `results/lsh_comparison_original_vs_reconstructed.csv` | Tableau comparatif original vs reconstruit |
+| `results/lsh_comparison_original_vs_reconstructed.png` | Graphiques côte à côte |
+
+---
+
+## Prérequis avant d'exécuter
+
+1. Avoir exécuté le notebook `Valentin/IVF_PQ_Benchmark.ipynb` (Section 11) pour générer les fichiers dans `shared_data/`
+2. Les fichiers suivants doivent exister :
+   - `../shared_data/base_reconstructed.npy`
+   - `../shared_data/query_reconstructed.npy`
+   - `../shared_data/base_compressed.npy`
+
+## Comment exécuter
+
+Ouvrir `LSH_Benchmark_Final.ipynb` et faire **Restart & Run All**.
+La Section 7 s'exécute automatiquement après les sections existantes.
