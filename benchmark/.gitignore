@@ -1,0 +1,10 @@
+# Contenu des dossiers de données et résultats (générés localement)
+data/*
+!data/.gitkeep
+results/*
+!results/.gitkeep
+
+*.fvecs
+*.ivecs
+*.npy
+.ipynb_checkpoints/
